@@ -1,0 +1,506 @@
+/**
+ * Structural types for the cordis services this plugin consumes, plus the
+ * Context augmentation both halves share. A third-party plugin resolves
+ * outside the DSH monorepo's single cordis instance, so the upstream
+ * `declare module 'cordis'` augmentations do not reach this Context; the
+ * members below mirror the actual runtime shapes this plugin touches.
+ *
+ * The `sessions` field is a union of the HOST store face (get/list) and the
+ * CLIENT list feed (list.getSnapshot/subscribe): each half only touches its
+ * own side, and the shared declaration keeps the two cordis instance layers
+ * from colliding under one tsconfig.
+ */
+import type { IncomingMessage, ServerResponse } from 'node:http';
+import type { Context } from 'cordis';
+/** One named webserver route. */
+export interface SideWebRoute {
+    kind: 'exact' | 'prefix';
+    path: string;
+    handler: (req: IncomingMessage, res: ServerResponse) => void | Promise<void>;
+}
+/** The webServer service face this plugin uses. */
+export interface SideWebServer {
+    register(route: SideWebRoute): () => void;
+    /**
+     * The configured bind address (one concrete local interface). Present since
+     * the 0.2.0 line; DSH 0.2.1-rc.1 made the /api fence accept this literal
+     * independently of `trustedHosts`, and this plugin's fence follows.
+     */
+    readonly host?: string;
+    /**
+     * The protocol the listener speaks. DSH 0.2.1-rc.1 added it together with
+     * `--tls-cert`/`--tls-key`; absent on earlier lines, where HTTP is the only
+     * listener.
+     */
+    readonly protocol?: 'http:' | 'https:';
+}
+/** A published session's header slice (authoritative cwd, lineage, origin). */
+export interface SideSessionHeader {
+    cwd?: string;
+    parentSession?: string;
+    origin?: 'subagent';
+    delegationDepth?: number;
+}
+/** One session event (fold source for history and permission current). */
+export interface SideSessionEvent {
+    type: string;
+    seq: number;
+    time: number;
+    data: Record<string, unknown>;
+    surfaceOp?: 'append' | 'replace' | 'remove';
+    sourceEventSeqs?: number[];
+}
+/**
+ * The live session face the host reads. Event reads go through
+ * `sessionQuery.readSession` instead: DSH 0.1.6 deprecated the Session's
+ * synchronous event getters (`events` before 0.1.5, `snapshotEvents` after).
+ */
+export interface SideSession {
+    id: string;
+    header: SideSessionHeader;
+    requestHeader?: () => {
+        config?: {
+            provider?: string;
+            model?: string;
+            reasoningEffort?: string;
+            maxTokens?: number;
+        };
+    } | undefined;
+}
+/** The host session store face (`ctx.sessions` host side). */
+export interface SideSessionStore {
+    get(id: string): SideSession | undefined;
+    list(): SideSession[];
+}
+/** One session list row (client list feed). */
+export interface SideSessionSummary {
+    id: string;
+    displayTitle: string;
+    cwd?: string;
+    origin?: 'subagent';
+    parentId?: string;
+    running: boolean;
+}
+/** The session list snapshot the browser half subscribes to. */
+export interface SideSessionList {
+    /**
+     * The selected session id. Present through DSH 0.1.6-alpha.1; 0.1.6-alpha.2
+     * moved the selection out of the list store (multi-instance Client Sessions),
+     * so it is optional here and read through {@link SideUiSessionService} instead.
+     */
+    current?: string | undefined;
+    byId: Record<string, SideSessionSummary>;
+}
+/** One selectable answer in a user-question dialog. */
+export interface SideQuestionOption {
+    label: string;
+    description?: string;
+}
+/** One question in a pending user-question dialog. */
+export interface SideQuestionItem {
+    id: string;
+    question: string;
+    detail?: string;
+    header?: string;
+    options?: SideQuestionOption[];
+    multiSelect?: boolean;
+}
+/** A pending main-conversation interaction (question / plan-review / approval dialog). */
+export interface SidePendingInteraction {
+    /** Presentation discriminator: the question family, or an approval. */
+    kind: 'question' | 'plan-review' | 'approval';
+    /** Opaque render identity and request key (e.g. `question:1`). */
+    key: string;
+    sessionId: string;
+    /** The request's question list (present for the question family). */
+    questions?: SideQuestionItem[];
+}
+/** The per-session pending-interaction source exposed by the `uiSession` service. */
+export interface SidePendingInteractionStore {
+    getSnapshot(): ReadonlyMap<string, SidePendingInteraction>;
+    subscribe(fn: () => void): () => void;
+}
+/** The client sessions service face (list feed + scope resolution). */
+export interface SideSessionsService {
+    list: {
+        getSnapshot(): SideSessionList;
+        subscribe(fn: () => void): () => void;
+    };
+    /** Resolve an Agent-scoped context view for a listed session id (use-and-discard). */
+    scope(id: string): Context | undefined;
+}
+/** Minimal standard binding of one Session scope (`uiSession.adapter.current`). */
+export interface SideScopeBinding {
+    /** The bound session id; absent while no Session is selected. */
+    readonly key: string | undefined;
+}
+/** One Session's UI status row (DSH 0.1.6-alpha.2+). */
+export interface SideSessionStatus {
+    /** Highest-precedence pending interaction awaiting the user, if any. */
+    readonly pendingInteraction?: SidePendingInteraction;
+}
+/** The client UI-session service face (current Session binding + pending interactions). */
+export interface SideUiSessionService {
+    /**
+     * Pre-0.1.6-alpha.2 per-session pending-interaction feed. Removed in
+     * 0.1.6-alpha.2, where the interaction moved onto {@link sessionStatus}.
+     */
+    pendingInteractions?: SidePendingInteractionStore;
+    /**
+     * DSH 0.1.6-alpha.2+ unified Session UI status. The pending interaction is
+     * `getSnapshot().get(sessionId)?.pendingInteraction`.
+     */
+    sessionStatus?: {
+        getSnapshot(): ReadonlyMap<string, SideSessionStatus>;
+        subscribe(fn: () => void): () => void;
+    };
+    /**
+     * Default Session-scope binding (including its absent projection). Its
+     * `current.key` is the selected Session id — the post-0.1.6-alpha.2 home of
+     * the selection the sessions list no longer carries.
+     */
+    adapter?: {
+        current: {
+            getSnapshot(): SideScopeBinding;
+            subscribe(fn: () => void): () => void;
+        };
+    };
+}
+/** Agent options (provider/model/maxTokens). */
+export interface SideAgentOptions {
+    provider?: string;
+    model?: string;
+    maxTokens?: number;
+}
+/**
+ * Durable model choice for future steps (DSH 0.2.2-alpha.3+).
+ *
+ * The 0.2.1 line applied a plugin's live selection by rewriting request config
+ * from a scoped listener; 0.2.2 replaced that with a logged `model/selection`
+ * event the step preparation fixes before prompt assembly, and the loop now
+ * rejects an `agent/request` listener that proposes a different route.
+ */
+export interface SideAgentModel {
+    /** Replace the next step's complete selection (equal selections are a no-op). */
+    select(selection: SideModelSelection): void;
+    /** Resolve the choice for the next step, or undefined when no source names a route. */
+    current?(): Readonly<SideModelSelection> | undefined;
+}
+/** The live agent face (`ctx.agents.get(id)` / `AgentHandle.agent`). */
+export interface SideAgent {
+    readonly id: string;
+    readonly options: SideAgentOptions;
+    readonly session: SideSession;
+    readonly status: string;
+    readonly ctx: Context;
+    /** Durable model choice; present from DSH 0.2.2-alpha.3, absent on the 0.2.1 line. */
+    readonly model?: SideAgentModel;
+    followup(message: unknown): void;
+    inject(message: unknown): void;
+    cancel(cause: {
+        kind: 'user' | 'parent' | 'disposed';
+    } | {
+        kind: 'hook';
+        reason: string;
+    }): void;
+    whenIdle(): Promise<void>;
+}
+/** The agent handle `ctx.agents.create` resolves (owner tears the agent down). */
+export interface SideAgentHandle {
+    agent: SideAgent;
+    dispose(): Promise<void>;
+}
+/** `ctx.agents.create` options (mirror of CreateAgentOptions). */
+export interface SideCreateAgentOptions {
+    sessionId: string;
+    meta?: {
+        cwd?: string;
+        parentSession?: string;
+        agentPreset?: string;
+    };
+    agentOptions?: SideAgentOptions;
+    setup?: (agentCtx: Context) => void | Promise<void>;
+}
+/** The host agent registry face. */
+export interface SideAgentsService {
+    get(id: string): SideAgent | undefined;
+    create(options: SideCreateAgentOptions): Promise<SideAgentHandle>;
+}
+/** Live provider / model / reasoning-effort selection for one agent. */
+export interface SideModelSelection {
+    provider: string;
+    model: string;
+    reasoningEffort?: string;
+}
+/**
+ * Mutable selection plus the value captured when the current step entered
+ * prompt assembly (`current` / `assembled`).
+ */
+export interface SideModelSelectionRef {
+    current: SideModelSelection | undefined;
+    assembled: SideModelSelection | undefined;
+}
+/**
+ * The 0.2.1-line coupler: a mutable selection ref applied to prompt assembly
+ * (`system-prompt/assemble`), request routing (`agent/request`), and the
+ * model-switch notice. Typed structurally rather than imported: this plugin
+ * resolves outside the DSH monorepo's single cordis instance.
+ */
+export type SideInstallModelSelection = (agentCtx: Context, selection: SideModelSelectionRef) => () => void;
+/**
+ * The 0.2.2-alpha.3-line installer: the live selection moved to
+ * {@link SideAgentModel.select}, so the installer only adds the model-switch
+ * notice to the prompt and takes no selection argument.
+ */
+export type SideInstallModelSwitchNotice = (agentCtx: Context) => () => void;
+/**
+ * The workspace registry face. `archiveSession` hides a session from every
+ * grouping surface; `unarchiveSession` (0.1.6+) restores it. Both are writable
+ * through the registry's serialized operation queue.
+ */
+export interface SideWorkspaceRegistry {
+    archiveSession(sessionId: string): Promise<void>;
+    /**
+     * Restore one archived session. The plugin lifts the archive for exactly as
+     * long as a side-chat turn has to run: DSH 0.1.7 rejects `agent/pre-step` for
+     * an archived session, so an archived side chat can never answer.
+     */
+    unarchiveSession?(sessionId: string): Promise<void>;
+}
+/** `sessionQuery.readSession` snapshot. */
+export interface SideSessionLogSnapshot {
+    session: SideSessionHeader;
+    events: SideSessionEvent[];
+}
+/** The session query face. */
+export interface SideSessionQuery {
+    readSession(sessionId: string): Promise<SideSessionLogSnapshot>;
+}
+/** One permission preset option. */
+export interface SidePresetOption {
+    value: string;
+    name: string;
+    description?: string;
+}
+/** The permission presets face (`current` reads the SESSION, not event rows). */
+export interface SidePermissionPresets {
+    current(session: SideSession): string;
+    set(session: SideSession, name: string): void;
+    /** 0.1.6+: process-level catalog of selectable presets. */
+    catalog?(): {
+        options: SidePresetOption[];
+    };
+    /** 0.1.6+: the preset selected as the default for future sessions. */
+    defaultPreset?: string;
+    /** 0.1.5 and earlier: combined catalog plus current value. Removed in 0.1.6. */
+    selectFor?(state: unknown): {
+        options: SidePresetOption[];
+        currentValue: string;
+    };
+}
+/** The agent presets face (composeFrom joins a child to the parent's composition). */
+export interface SideAgentPresets {
+    composeFrom(agentCtx: Context, parentCtx: Context): string | undefined;
+}
+/** One provider route. */
+export interface SideLlmProvider {
+    id: string;
+    name: string;
+}
+/** One model entry. */
+export interface SideLlmModel {
+    provider: string;
+    id: string;
+    name: string;
+    description?: string;
+}
+/** One reasoning-effort entry. */
+export interface SideLlmEffort {
+    id: string;
+    name: string;
+    description?: string;
+}
+/** One model-request stream chunk (minimal structural view for text collection). */
+export interface SideLlmStreamChunk {
+    type: string;
+    text?: string;
+}
+/** Minimal generate options the summarize route builds (a hand-built user prompt). */
+export interface SideLlmGenerateOptions {
+    provider: string;
+    model: string;
+    reasoningEffort?: string;
+    maxTokens?: number;
+    signal?: AbortSignal;
+    messages: Array<{
+        id?: string;
+        role: 'user' | 'assistant' | 'system';
+        content: Array<{
+            type: 'text';
+            text: string;
+        }>;
+        source?: {
+            kind: string;
+        };
+    }>;
+}
+/** The llm face (model/effort catalog + one-shot streaming calls). */
+export interface SideLlm {
+    listProviders(): SideLlmProvider[];
+    listModels(provider: string): Promise<SideLlmModel[]>;
+    resolveModelInfo(provider: string, model: string): Promise<{
+        provider: string;
+        id: string;
+        name: string;
+        reasoning?: {
+            efforts: readonly SideLlmEffort[];
+            defaultEffort?: string;
+        };
+    }>;
+    stream(options: SideLlmGenerateOptions): AsyncIterable<SideLlmStreamChunk>;
+}
+/** The client locale service face. */
+export interface SideLocaleService {
+    getSnapshot(): {
+        active: string;
+    };
+    subscribe(fn: () => void): () => void;
+    register(ns: string, locale: string, dict: Record<string, string>): () => void;
+}
+/** DSH 0.1.7 profile-entry settings forms. */
+export interface SideSettingsService {
+    configure(presentation: {
+        auto?: boolean;
+    }, owner?: Context['fiber']): () => void;
+    describe(opts: {
+        redactSecrets?: boolean;
+    }): Array<{
+        ns: unknown;
+        value?: unknown;
+        revision?: number;
+    }>;
+    update(ns: unknown, patch: Record<string, unknown>, expectedRevision?: number): Promise<void>;
+}
+/** The client slots service face (settings.section registration). */
+export interface SideSlotsService {
+    inject(name: string, factory: () => () => void): () => void;
+    register(options: Record<string, unknown>, component: unknown): () => void;
+}
+/** One right-sidebar tab type definition (dsh-client-ui-sidebar-right contract, mirror). */
+export interface SideTabDefinition {
+    /** Stable unique key; the body seat entry registers under the same key. */
+    id: string;
+    /** Discriminator used by `openTab(kind)` and the pane dispatch. */
+    kind: string;
+    /** Registry band ('builtin' | 'extension' | 'fallback'); defaults to the extension band. */
+    priority?: string;
+    /** Fresh title for the tab chip captured at open time. */
+    title(address: string): string;
+}
+/** The right-sidebar tab-type registry face (`ctx.sidebarRight.tabs`). */
+export interface SideSidebarRightTabs {
+    /** Register a tab type; returns a disposer (hold it in the caller's ctx.effect). */
+    register(definition: SideTabDefinition): () => void;
+}
+/** The cross-plugin right-sidebar face (`ctx.sidebarRight`, ui-sidebar-right). */
+export interface SideSidebarRight {
+    /**
+     * The controller's tab registry. TypeScript-private upstream (it works at
+     * runtime, but the standalone `sidebarRightTabs` service is the public
+     * home), so optional here.
+     */
+    tabs?: SideSidebarRightTabs;
+    /** Open a page type by kind in the mounted session; reveals the column. */
+    openTab(kind: string, options?: {
+        paneId?: string;
+        replaceTab?: boolean;
+        revealIfOpened?: boolean;
+    }): void;
+}
+/** One durable image reference (mirror of ImageAttachmentRef). */
+export interface SideImageAttachmentRef {
+    attachmentId: string;
+    mediaType: 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif';
+    bytes: number;
+    width: number;
+    height: number;
+    name?: string;
+}
+/** The host attachment store face (`ctx.attachments`). */
+export interface SideAttachmentStore {
+    readonly imageLimits: {
+        maxImageBytes: number;
+        maxImagesPerMessage: number;
+        maxMessageImageBytes: number;
+        maxImagePixels: number;
+        /** 0.1.6+ per-image intrinsic width/height ceiling; absent on earlier lines. */
+        maxImageDimension?: number;
+        mediaTypes: readonly string[];
+    };
+    validateImage(input: {
+        data: Uint8Array;
+        mediaType: string;
+        name?: string;
+    }): Promise<void>;
+    saveImage(input: {
+        data: Uint8Array;
+        mediaType: string;
+        name?: string;
+    }): Promise<SideImageAttachmentRef>;
+    readImage(ref: SideImageAttachmentRef): Promise<{
+        ref: SideImageAttachmentRef;
+        data: Uint8Array;
+    }>;
+}
+/** The host command registry face (`ctx.commands`). */
+export interface SideCommandsService {
+    list(agent: SideAgent): Array<{
+        name: string;
+        description: string;
+    }>;
+    execute(agent: SideAgent, line: string, submittedAttachments: readonly unknown[], signal: AbortSignal): Promise<unknown>;
+}
+/** The per-session composer input face this plugin writes to (draft-only). */
+export interface SideSessionInput {
+    /** Replace the session composer draft (never submits). */
+    setDraft(text: string): void;
+    /** Live input state store (draft read). */
+    state: {
+        getSnapshot(): {
+            draft: string;
+        };
+    };
+    /** Surface a notice on the session composer. */
+    notify(level: 'info' | 'error', text: string): void;
+}
+/** The conversation service face (`ctx.conversation`) — input registry only. */
+export interface SideConversationService {
+    input: {
+        /** Resolve the input facade for one session-scope context. */
+        for(actx: Context): SideSessionInput;
+    };
+}
+declare module 'cordis' {
+    interface Context {
+        webServer: SideWebServer;
+        sessions: SideSessionStore & SideSessionsService;
+        agents: SideAgentsService;
+        workspaceRegistry: SideWorkspaceRegistry;
+        sessionQuery: SideSessionQuery;
+        permissionPresets: SidePermissionPresets;
+        agentPresets: SideAgentPresets;
+        llm: SideLlm;
+        locale: SideLocaleService;
+        settings: SideSettingsService;
+        slots: SideSlotsService;
+        attachments: SideAttachmentStore;
+        commands: SideCommandsService;
+        conversation: SideConversationService;
+        uiSession: SideUiSessionService;
+        inject(deps: string[], callback: (ctx: Context) => void): void;
+        get(name: string): unknown | undefined;
+        on(name: string, listener: (...args: any[]) => any): () => void;
+        effect(fn: () => void | (() => void), label?: string): void;
+    }
+}
+export type { Context };

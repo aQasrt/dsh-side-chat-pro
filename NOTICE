@@ -1,0 +1,13 @@
+本软件基于 dsh-side-chat-plus 修改（https://github.com/heartmove/dsh-side-chat）。
+
+原始版权：Copyright (c) 2026 dsh-sub-chats contributors，MIT License。
+
+本修改版新增：
+- 划词三选一菜单（侧边栏提问 / 翻译 / 名词解释）
+- 翻译结合上下文段落判断词义，输出 1-5 个按贴合度排序的候选译法
+- 名词解释结合上下文，用一到三句话说明
+- 父会话上下文注入与 sidechat_read_parent 工具
+- 侧聊记录持久化（重启不丢，主动结束才归档）
+- 可拖动并记忆位置的悬浮球
+
+本修改版同样以 MIT License 发布，原始版权声明见 LICENSE。

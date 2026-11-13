@@ -1,0 +1,7 @@
+# Bundle patch layer for dsh-side-chat-pro. Referenced by package.json dsh.bundle.patch, so
+# `dsh plugin add dsh-side-chat-pro` reconciles the package into the profile bundle list
+# and this row mounts the plugin. `name` is the package name: the Loader resolves
+# it from the profile's node_modules.
+- insert:
+    - id: dsh-side-chat-pro
+      name: dsh-side-chat-pro

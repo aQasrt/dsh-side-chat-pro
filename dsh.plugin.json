@@ -1,0 +1,16 @@
+{
+  "id": "dsh-external/dsh-side-chat-pro",
+  "version": "0.1.0",
+  "main": "./lib/index.js",
+  "description": "选中对话文字 → 三选一：侧边子会话提问 / 翻译 / 名词解释。翻译结合上下文给 1-5 个候选译法，解释用一两句话说明名词；结果落在贴选区的小浮层里，不打断主会话。",
+  "engines": {
+    "dsh": ">=0.2.1-rc.1"
+  },
+  "contributes": {
+    "tools": [],
+    "skills": []
+  },
+  "client": {
+    "main": "./lib/client-registry.js"
+  }
+}
