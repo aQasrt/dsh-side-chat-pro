@@ -93,5 +93,13 @@
     "react-dom": "^18.2.0",
     "@deepseek-ai/dsh-agent-preset-registry": ">=0.2.1-rc.1"
   },
-  "scripts": {}
+  "scripts": {},
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aQasrt/dsh-side-chat-pro.git"
+  },
+  "homepage": "https://github.com/aQasrt/dsh-side-chat-pro#readme",
+  "bugs": {
+    "url": "https://github.com/aQasrt/dsh-side-chat-pro/issues"
+  }
 }
