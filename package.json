@@ -4,14 +4,6 @@
   "description": "侧边聊天 Pro — 划词三选一：选中对话里的文字，可开侧边子会话提问，也可就地翻译或解释名词。翻译结合上下文给出 1-5 个候选译法。基于 dsh-side-chat-plus (MIT) 修改。",
   "private": false,
   "type": "module",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/GITHUB_USER/dsh-side-chat-pro.git"
-  },
-  "homepage": "https://github.com/GITHUB_USER/dsh-side-chat-pro#readme",
-  "bugs": {
-    "url": "https://github.com/GITHUB_USER/dsh-side-chat-pro/issues"
-  },
   "keywords": [
     "dsh",
     "deepseek",
